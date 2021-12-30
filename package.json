@@ -1,10 +1,12 @@
 {
-  "name": "fnext",
+  "name": "wtfcsv",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "determine the shape of CSV files",
   "scripts": {
     "test": "node index"
+  },
+  "bin": {
+    "wtfcsv": "./index.js"
   },
   "keywords": [],
   "author": "hawyar",
