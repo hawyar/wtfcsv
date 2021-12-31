@@ -4,9 +4,10 @@ const { createInterface } = require("readline");
 const { createReadStream, existsSync } = require("fs");
 const { spawn } = require("child_process");
 const os = require("os");
+const { Buffer } = require("buffer");
 
 const usage = `Usage: \n \t wtfcsv <path_to_csv_file>`;
-const delimiters = [",", ";", ":", "\t"];
+const delimiters = [",", ";", "|", ":", "\t"];
 
 (function wtfcsv(path) {
 	if (path === undefined || path === "") {
@@ -25,6 +26,7 @@ const delimiters = [",", ";", ":", "\t"];
 		delimeter: "",
 		errors: {},
 		warnings: {},
+		preview: [],
 	};
 
 	if (!existsSync(path)) {
@@ -37,7 +39,8 @@ const delimiters = [",", ";", ":", "\t"];
 	if (
 		platform === "darwin" ||
 		platform === "linux" ||
-		platform === "freebsd"
+		platform === "freebsd" ||
+		platform === "openbsd"
 	) {
 		const fileType = spawn("file", [path, "--mime-type"]);
 
@@ -51,6 +54,7 @@ const delimiters = [",", ";", ":", "\t"];
 
 			shape.errors["incorrectType"] = `${path} is of type ${type}`;
 			writeout(shape);
+			prcoess.exit(0);
 		});
 
 		fileType.on("close", (code) => {
@@ -74,16 +78,19 @@ const delimiters = [",", ";", ":", "\t"];
 		del: "",
 	};
 
-	rl.on("line", (l) => {
+	// hold the previous line while rl proceeeds to next line using \r\n as a delimter
+	let previous = "";
+
+	rl.on("line", (current) => {
 		if (count === 0) {
 			delimiters.forEach((d) => {
-				if (l.split(d).length > 1) {
-					first.row = l.split(d);
+				if (current.split(d).length > 1) {
+					first.row = current.split(d);
 					first.del = d;
 				}
 			});
 
-			if (first.delimeter === "" || first.row <= 1) {
+			if (first.del === "" || first.row <= 1) {
 				shape.errors["unrecognizedDelimeter"] =
 					"unable to detect delimeter";
 
@@ -94,9 +101,9 @@ const delimiters = [",", ";", ":", "\t"];
 
 			const isDigit = /\d+/;
 
+			// we are betting numbers should not appear as the header
 			const hasDigitInHeader = first.row.some((el) => isDigit.test(el));
 
-			// digits in column headers is odd
 			if (hasDigitInHeader) {
 				shape.header = false;
 				shape.warnings["noHeader"] = `no header found`;
@@ -107,9 +114,37 @@ const delimiters = [",", ";", ":", "\t"];
 			shape.header = true;
 			shape.delimeter = first.del;
 			shape.columns = first.row;
-
-			const lineQuotes = l.split(first.d).length - 1;
 		}
+
+		if (count > 0 && count < max) {
+			// if odd number of quotes on current line then there is a chance the record spans the next line
+			const inlineQuotes = current.split(`"`).length - 1;
+
+			if (previous) {
+				if (inlineQuotes % 2 !== 0) {
+					// TODO: make sure previous + current
+					// console.log(previous + l);
+					shape.spanMultipleLines = true;
+				}
+			}
+			// check if odd number of quotes and consider escaped quotes such as: "aaa","b""bb","ccc"
+			if (
+				inlineQuotes % 2 !== 0 &&
+				current.split(`""`).length - 1 !== 1
+			) {
+				previous = current;
+			}
+
+			let width = current.split(first.del).length;
+			if (width !== first.row.length) {
+				shape.errors[
+					`mismatch row width, expected ${width}, got ${first.row.length}`
+				];
+				return;
+			}
+			shape.preview.push(current.split(first.del));
+		}
+
 		count++;
 	});
 
